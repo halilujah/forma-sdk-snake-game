@@ -19,3 +19,6 @@ addMesh() - updateMesh() -> Add snake and food to the scene, update the position
 ### 5. Geometry Query – Forma.geometry
 getPathsByCategory({ category: "road" }) –> Retrieve road centerlines as polylines
 getFootprint({ path }) –> Convert road paths into usable polyline coordinates for item placement
+
+
+👉 [Demo on YouTube](https://www.youtube.com/watch?v=xGknpwqVWiI)
