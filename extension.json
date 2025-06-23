@@ -1,0 +1,15 @@
+
+{
+  "id": "forma-fps-extension",
+  "name": "FPS Crafting Game",
+  "version": "1.0.0",
+  "main": "dist/host/main.js",
+  "embeddedViews": [
+    {
+      "id": "fps-game-panel",
+      "title": "Crafting Mode",
+      "src": "http://localhost:5173/index.html",
+      "location": "right"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "name": "forma-fps-extension",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && tsc"
+  },
+  "dependencies": {
+    "@preact/signals": "^2.2.0",
+    "forma-embedded-view-sdk": "^0.88.0",
+    "preact": "^10.26.9",
+    "three": "^0.177.0"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.10.1",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5"
+  }
+}
