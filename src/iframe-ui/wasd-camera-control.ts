@@ -1,7 +1,9 @@
 import { Forma } from 'forma-embedded-view-sdk/auto';
 import { Footprint } from 'forma-embedded-view-sdk/geometry';
 import type { Transform } from 'forma-embedded-view-sdk/render';
-import { scoreSignal } from './index';
+import { isGameOver, scoreSignal } from './index';
+import { levelSignal } from './index';
+import { maxScoreSignal } from './index';
 
 type Vector3 = { x: number; y: number; z: number };
 
@@ -9,10 +11,7 @@ const keysPressed = new Set<string>();
 window.addEventListener('keydown', e => keysPressed.add(e.key.toLowerCase()));
 window.addEventListener('keyup', e => keysPressed.delete(e.key.toLowerCase()));
 
-let headPosition: Vector3;
-let snakeHeading = 0;
-let velocity = 0;
-let headMeshId: string | null = null;
+
 
 const acceleration = 6;
 const maxSpeed = 10;
@@ -136,14 +135,46 @@ function applyTransformToPositions(
 }
 
 
+let headPosition: Vector3;
+let snakeHeading = 0;
+let velocity = 0;
+let headMeshId: string | null = null;
+let pre_transforms = new Array<Transform>();
+let mesh_ids = new Array<string>();
+let level = 1;
+let levelColor: [number, number, number, number] = [0, 200, 255, 255];
+let nextLevelColor: [number, number, number, number] = [0, 200, 255, 255];
+let levelUpLength = 2;
+let levelLimit = 1
+let gameplay: boolean = true
+
 
 const eatRadius = 1; // meters
 let active_items = new Array<{ id: string, x: number, y: number }>();
 let worm_max_length = 1;
-
-let score = 0;
+let score = 1;
 let itemPositions: Array<[x: number, y: number, z: number]>;
-async function init() {
+
+function initVars() {
+    headPosition = null;
+    snakeHeading = 0;
+    velocity = 0;
+    headMeshId = null;
+    pre_transforms = new Array<Transform>();
+    mesh_ids = new Array<string>();
+    level = 1;
+    levelColor = [0, 200, 255, 255];
+    nextLevelColor = [0, 200, 255, 255];
+    levelUpLength = 2;
+    levelLimit = 1;
+    worm_max_length = 1;
+    score = 1
+    gameplay = true;
+
+}
+
+export async function init() {
+    initVars();
     const cam = await Forma.camera.getCurrent();
     headPosition = { ...cam.target };
     snakeHeading = Math.atan2(cam.target.y - cam.position.y, cam.target.x - cam.position.x);
@@ -156,17 +187,19 @@ async function init() {
     });
     headMeshId = id;
     mesh_ids.push(id);
-    const road_paths = await Forma.geometry.getPathsByCategory({ category: "road" })
-    itemPositions = new Array<[x: number, y: number, z: number]>();
-    for (let i = 0; i < road_paths.length; i++) {
-        let rp = road_paths[i];
-        let fp = await Forma.geometry.getFootprint({ path: rp })
-        let refined = await resamplePolyline(fp.coordinates, 5)
-        itemPositions.push(...refined)
-    }
+    if (itemPositions == null) {
+        const road_paths = await Forma.geometry.getPathsByCategory({ category: "road" })
+        itemPositions = new Array<[x: number, y: number, z: number]>();
+        for (let i = 0; i < road_paths.length; i++) {
+            let rp = road_paths[i];
+            let fp = await Forma.geometry.getFootprint({ path: rp })
+            let refined = await resamplePolyline(fp.coordinates, 5)
+            itemPositions.push(...refined)
+        }
 
-    let item_pos = pickRandomPositions(itemPositions, 500)
-    await spawnItems(item_pos)
+        let item_pos = pickRandomPositions(itemPositions, 500)
+        await spawnItems(item_pos)
+    }
     moveLoop();
 }
 
@@ -234,14 +267,19 @@ function geoTransform(pos: Vector3, heading: number): [number, number, number, n
         pos.x, pos.y, pos.z, 1
     ];
 }
-let pre_transforms = new Array<Transform>();
-let mesh_ids = new Array<string>();
+
 async function moveLoop() {
     let lastTime = performance.now();
     let lastTimeSnakeUpdate = 0;
     let lastOpLong: boolean = false
     let traveled = 0;
+    let r = Math.random() * 255;
+    let g = Math.random() * 255;
+    let b = Math.random() * 255
+
+    nextLevelColor = [r, g, b, 255];
     const tick = async () => {
+        if (!gameplay) return
         const now = performance.now();
         const dt = (now - lastTime) / 1000;
         lastTime = now;
@@ -258,8 +296,8 @@ async function moveLoop() {
 
         if (keysPressed.has('a')) snakeHeading += turnSpeed * dt;
         if (keysPressed.has('d')) snakeHeading -= turnSpeed * dt;
-        if (keysPressed.has('w')) velocity += acceleration * dt;
-        if (keysPressed.has('s')) velocity -= acceleration * dt;
+        if (keysPressed.has('w')) velocity = maxSpeed;
+        if (keysPressed.has('s')) velocity = 0;
         velocity = Math.max(Math.min(velocity, maxSpeed), -maxSpeed);
         if (velocity == 0) {
             requestAnimationFrame(tick);
@@ -279,7 +317,6 @@ async function moveLoop() {
         if (Math.abs(moveVec.x) > 0.01 || Math.abs(moveVec.y) > 0.01) {
             headPosition.z = await Forma.terrain.getElevationAt({ x: headPosition.x, y: headPosition.y }) + 0.5;
         }
-        let hasgrown: boolean = false;
         for (let i = 0; i < active_items.length; i++) {
             const item = active_items[i];
             const dx = item.x - headPosition.x;
@@ -293,7 +330,21 @@ async function moveLoop() {
 
                 // ➕ Grow worm
                 worm_max_length += 1
-                hasgrown = true;
+                if (worm_max_length >= levelUpLength) {
+                    level += 1
+                    levelLimit++
+                    levelUpLength += levelLimit;
+                    let r = Math.random() * 255;
+                    let g = Math.random() * 255;
+                    let b = Math.random() * 255
+
+                    levelColor = nextLevelColor;
+                    nextLevelColor = [r, g, b, 255]
+                    levelSignal.value = level
+                    maxScoreSignal.value = levelUpLength;
+                }
+
+
                 // 🍏 Spawn a new one
                 const newPos = pickRandomPositions(itemPositions, 1);
                 score++
@@ -305,8 +356,26 @@ async function moveLoop() {
             }
         }
 
-        if (headMeshId) {
+        if (now - lastTimeSnakeUpdate > 250) {
+            for (let i = 0; i < pre_transforms.length - 1; i++) {
+                let tdata = pre_transforms[i]
+                let tx = tdata[12];
+                let ty = tdata[13];
+
+                let cx = headPosition.x;
+                let cy = headPosition.y;
+                if (Math.hypot(cx - tx, cy - ty) < eatRadius) {
+                    gameover()
+                    isGameOver.value = true;
+                    return
+                }
+            }
+        }
+
+
+        if (headMeshId && dist_traveled > 0) {
             if (now - lastTimeSnakeUpdate > 250) {
+                let color = levelColor
                 //add new segment if necessary
                 if (worm_max_length > mesh_ids.length) {
                     let transform_data = pre_transforms[0];
@@ -316,6 +385,7 @@ async function moveLoop() {
                         transform: transform_data
                     });
                     mesh_ids.push(id);
+                    color = nextLevelColor;
                 }
 
                 //move last to the new position
@@ -324,12 +394,10 @@ async function moveLoop() {
                 if (pre_transforms.length > worm_max_length) {
                     pre_transforms = pre_transforms.slice(pre_transforms.length - worm_max_length)
                 }
-                let r = Math.random() * 255;
-                let g = Math.random() * 255;
-                let b = Math.random() * 255
+
                 let last = mesh_ids.pop();
                 mesh_ids.unshift(last);
-                let geo = createBlockGeometry(0, 3, [r, g, b, 255])
+                let geo = createBlockGeometry(0, 3, color)
 
                 await Forma.render.updateMesh({
                     id: last,
@@ -359,6 +427,33 @@ async function moveLoop() {
 
         requestAnimationFrame(tick);
     };
+
+    const gameover = async () => {
+        const redc: [number, number, number, number] = [255, 0, 0, 255]
+        let geo = createBlockGeometry(0, 3, redc)
+
+        let shown = true;
+        let meshIdsClone = mesh_ids.slice(0);
+        let interval = setInterval(async () => {
+            if (mesh_ids.length > 0) {
+                let id = mesh_ids.shift()
+                let tf = pre_transforms.pop();
+                await Forma.render.updateMesh({
+                    id: id,
+                    geometryData: geo,
+                    transform: tf,
+                });
+            } else if (meshIdsClone.length > 0) {
+                let midClone = meshIdsClone.pop()
+                await Forma.render.remove({ id: midClone })
+            } else {
+                clearInterval(interval)
+            }
+
+        }, 50)
+
+
+    }
 
     requestAnimationFrame(tick);
 }
